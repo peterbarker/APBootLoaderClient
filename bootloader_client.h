@@ -131,6 +131,11 @@ int bootloader_program_chunk(const uint8_t *chunk, const uint8_t chunksize);
  */
 uint32_t bootloader_crc32_firmware(const uint8_t *fw, uint32_t fwlen, const uint32_t padlen);
 
+/*
+ * update a crc32 calculation based on a chunk of data
+ *
+ */
+uint32_t bootloader_crc32_chunk(const uint8_t *chunk, const uint32_t chunklen, uint32_t state);
 
 /*
  * set a baudrate on the bootloader side of the serial connection
