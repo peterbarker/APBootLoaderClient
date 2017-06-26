@@ -115,6 +115,17 @@ int bootloader_set_boot_delay(const uint8_t d);
 int bootloader_program(uint8_t *fw, const uint32_t fwlen, void (*f)(uint8_t));
 
 /*
+ * write another chunk of firmware to flash storage
+ *
+ * chunk is the data to be written
+ *
+ * chunksize is the exact number of bytes to be written.  It must be
+ * at most bl_prog_multi_chunksize bytes in length and must be evenly
+ * divisible by 4 except the final chunk to be written
+ */
+int bootloader_program_chunk(const uint8_t *chunk, const uint8_t chunksize);
+
+/*
  * calculate a CRC for the supplied firmware
  * this should match what the PixHawk returns after flashing is complete
  */

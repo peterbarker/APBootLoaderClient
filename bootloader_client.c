@@ -447,8 +447,9 @@ uint32_t bootloader_crc32_firmware(const uint8_t *fw, uint32_t fwlen, const uint
     return state;
 }
 
-int bootloader_program_chunk(const uint8_t *chunk, const uint8_t chunksize, const uint8_t writesize)
+int bootloader_program_chunk(const uint8_t *chunk, const uint8_t chunksize)
 {
+    const uint8_t writesize = chunksize + (chunksize%4);
     const uint8_t params_size = 1 + writesize;
     uint8_t *params = alloca(params_size);
     if (params == NULL) {
@@ -476,8 +477,7 @@ int bootloader_program(uint8_t *fw, const uint32_t fwlen, void (*f)(uint8_t))
         if (chunksize > bl_prog_multi_chunksize) {
             chunksize = bl_prog_multi_chunksize;
         }
-        const uint8_t writesize = chunksize + (chunksize%4);
-        if (bootloader_program_chunk(&fw[total_fw_bytes_written], chunksize, writesize) == -1) {
+        if (bootloader_program_chunk(&fw[total_fw_bytes_written], chunksize) == -1) {
             return -1;
         }
         if (f != NULL) {
