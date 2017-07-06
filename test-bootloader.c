@@ -82,11 +82,10 @@ ssize_t bootloader_readbyte(uint8_t *byte, const bl_timeout_t timeout)
     while (1) {
 	int bytes_read = read(serial_fd, byte, 1);
 	if (bytes_read == -1) {
-            if (errno == EAGAIN) {
-                continue;
+            if (errno != EAGAIN) {
+                fprintf(stderr, "read failed: %m\n");
+                exit(1);
             }
-	    fprintf(stderr, "read failed: %m\n");
-	    exit(1);
 	}
 	if (bytes_read == 1) {
             /* fprintf(stderr, "got a byte (0x%02x) (%c)\n", byte[0], (isprint(byte[0]) ? byte[0] : ' ')); */
@@ -94,7 +93,7 @@ ssize_t bootloader_readbyte(uint8_t *byte, const bl_timeout_t timeout)
         }
         const uint32_t delta = now_ms() - start_time_ms;
         if (delta > ms_to_wait) {
-            fprintf(stderr, "read timeout after %lums (now=%lu start=%lu delta=%u)\n", ms_to_wait, now_ms(), start_time_ms, delta);
+            fprintf(stderr, "read timeout after %ums (now=%lu start=%lu ms_to_wait=%lu)\n", delta, now_ms(), start_time_ms, ms_to_wait);
             return 0;
         }
     }
@@ -112,7 +111,7 @@ void drain_serial()
 {
     uint8_t unused;
     while (bootloader_readbyte(&unused, 0)) {
-        fprintf(stderr, "drained a byte\n");
+        fprintf(stderr, "drained a byte (0x%02x)\n", unused);
     }
 }
 
@@ -120,12 +119,13 @@ void drain_serial()
 int _open_serial_fd(const char *path)
 {
     int fd;
-    for (uint8_t i=0; i<5; i++) {
+    for (uint16_t i=0; i<500; i++) {
         fd = open(path, O_RDWR| O_NONBLOCK | O_NDELAY);
         if (fd != -1) {
+            fprintf(stderr, "Opened (%s)\n", path);
             return fd;
         }
-        usleep(1000000);
+        usleep(10000);
     }
     fprintf(stderr, "test-bootloader: Failed to open (%s): %s\n", path, strerror(errno));
     abort();
@@ -157,10 +157,10 @@ int configure_serial()
     } serial_config_t;
 
     const serial_config_t serial_configs[] = {
-        { B38400, "38400" },
-        { B57600, "57600" },
+        { B921600, "921600" },
         { B115200, "115200" },
-        { B921600, "921600" }
+        { B57600, "57600" },
+        { B38400, "38400" },
     };
 
     struct termios options;
@@ -170,6 +170,38 @@ int configure_serial()
         exit(1);
     }
     close(serial_fd);
+
+    options.c_iflag &= ~(BRKINT | ICRNL | IMAXBEL | IXON | IXOFF);
+    options.c_oflag &= ~(OPOST | ONLCR);
+    options.c_lflag &= ~(ISIG | ICANON | IEXTEN | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE);
+    options.c_cc[VTIME] = 0;
+    options.c_cc[VMIN] = 0;
+    options.c_cflag &= ~CRTSCTS;
+
+    /* try syncing without reboots first: */
+    for (uint8_t i=0; i<ARRAY_LEN(serial_configs); i++) {
+        serial_config_t config = serial_configs[i];
+        fprintf(stderr, "trying sync/reboot at %s\n", config.name);
+        open_fc_fd();
+        cfsetspeed(&options, config.baud);
+//        cfsetospeed(&options, config.baud);
+        if (tcsetattr(serial_fd, TCSANOW, &options) == -1) {
+            fprintf(stderr, "Failed to set serial options: %m\n");
+            /* exit(1); */
+        }
+
+        /* tcflush(serial_fd, TCIFLUSH); */
+        /* tcflush(serial_fd, TCOFLUSH); */
+
+        // try syncing before we do a mavlink reset (which can confuse bl)
+        if (bootloader_get_sync() == -1) {
+            fprintf(stderr, "Failed to get sync\n");
+        } else {
+            fprintf(stderr, "Got sync at %s\n", config.name);
+            return 0;
+        }
+        close(serial_fd);
+    }
 
     while (1) {
         for (uint8_t i=0; i<ARRAY_LEN(serial_configs); i++) {
@@ -223,7 +255,7 @@ int configure_serial()
 
                 char c;
                 while (read(serial_fd, &c, 1) == 1) {
-                    fprintf(stderr, "WTF?\n");
+                    fprintf(stderr, "Received char 0x%02x\n", c);
                 }
 
                 if (bootloader_get_sync() == -1) {
