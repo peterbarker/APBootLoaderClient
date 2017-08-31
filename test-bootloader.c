@@ -440,10 +440,10 @@ int main(int argc, char **argv)
 
     uint32_t chip_id;
     if (bootloader_get_chip_id(&chip_id) == -1) {
-    	fprintf(stderr, "Failed to get chip_id\n");
-    	abort();
+        fprintf(stderr, "*** Failed to get chip_id\n");
+    } else {
+        fprintf(stderr, "Got chip_id (%x)\n", chip_id);
     }
-    fprintf(stderr, "Got chip_id (%x)\n", chip_id);
 
     uint32_t sn[3];
     if (bootloader_get_sn(sn) == -1) {
