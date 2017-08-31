@@ -470,10 +470,10 @@ int main(int argc, char **argv)
     uint8_t chip_des[65537];
     memset(chip_des, '\0', sizeof(chip_des));
     if (bootloader_get_chip_des(chip_des, sizeof(chip_des)) == -1) {
-    	fprintf(stderr, "Failed to do get chip des\n");
-    	abort();
+        fprintf(stderr, "*** Failed to do get chip des\n");
+    } else {
+        fprintf(stderr, "Chip description: %s\n", chip_des);
     }
-    fprintf(stderr, "Chip description: %s\n", chip_des);
 
     if (bootloader_get_sync() == -1) {
 	fprintf(stderr, "Failed to get sync\n");
