@@ -116,6 +116,12 @@ void drain_serial()
 }
 
 
+bool exists(const char *path)
+{
+    struct stat statbuf;
+    return (stat(path, &statbuf) == 0);
+}
+
 int _open_serial_fd(const char *path)
 {
     int fd;
@@ -164,7 +170,13 @@ int configure_serial()
     };
 
     struct termios options;
-    open_fc_fd();
+    if (exists(fc_port_path)) {
+        open_fc_fd();
+    } else if (exists(serial_port_path)) {
+        open_serial_fd();
+    } else {
+        fprintf(stderr, "Neither (%s) not (%s) exist\n", fc_port_path, serial_port_path);
+    }
     if (tcgetattr(serial_fd, &options) == -1) {
         fprintf(stderr, "Failed to get serial options: %m\n");
         exit(1);
@@ -179,44 +191,20 @@ int configure_serial()
     options.c_cflag &= ~CRTSCTS;
 
     /* try syncing without reboots first: */
-    for (uint8_t i=0; i<ARRAY_LEN(serial_configs); i++) {
-        serial_config_t config = serial_configs[i];
-        fprintf(stderr, "trying sync/reboot at %s\n", config.name);
-        open_fc_fd();
-        cfsetspeed(&options, config.baud);
-//        cfsetospeed(&options, config.baud);
-        if (tcsetattr(serial_fd, TCSANOW, &options) == -1) {
-            fprintf(stderr, "Failed to set serial options: %m\n");
-            /* exit(1); */
-        }
-
-        /* tcflush(serial_fd, TCIFLUSH); */
-        /* tcflush(serial_fd, TCOFLUSH); */
-
-        // try syncing before we do a mavlink reset (which can confuse bl)
-        if (bootloader_get_sync() == -1) {
-            fprintf(stderr, "Failed to get sync\n");
-        } else {
-            fprintf(stderr, "Got sync at %s\n", config.name);
-            return 0;
-        }
-        close(serial_fd);
-    }
-
-    while (1) {
+    if (exists(serial_port_path)) {
         for (uint8_t i=0; i<ARRAY_LEN(serial_configs); i++) {
             serial_config_t config = serial_configs[i];
-            fprintf(stderr, "trying sync/reboot at %s\n", config.name);
-            open_fc_fd();
-            cfsetispeed(&options, config.baud);
-            cfsetospeed(&options, config.baud);
+            fprintf(stderr, "trying sync at %s\n", config.name);
+            open_serial_fd();
+            cfsetspeed(&options, config.baud);
+//        cfsetospeed(&options, config.baud);
             if (tcsetattr(serial_fd, TCSANOW, &options) == -1) {
                 fprintf(stderr, "Failed to set serial options: %m\n");
                 /* exit(1); */
             }
 
-            tcflush(serial_fd, TCIFLUSH);
-            tcflush(serial_fd, TCOFLUSH);
+            /* tcflush(serial_fd, TCIFLUSH); */
+            /* tcflush(serial_fd, TCOFLUSH); */
 
             // try syncing before we do a mavlink reset (which can confuse bl)
             if (bootloader_get_sync() == -1) {
@@ -225,10 +213,41 @@ int configure_serial()
                 fprintf(stderr, "Got sync at %s\n", config.name);
                 return 0;
             }
-
-            bootloader_send_mavlink_reboot();
-            sleep(1);
             close(serial_fd);
+        }
+    }
+
+    while (1) {
+        for (uint8_t i=0; i<ARRAY_LEN(serial_configs); i++) {
+            if (exists(fc_port_path)) {
+                fprintf(stderr, "%s exists\n", fc_port_path);
+                serial_config_t config = serial_configs[i];
+                fprintf(stderr, "trying sync/reboot at %s\n", config.name);
+                open_fc_fd();
+                cfsetispeed(&options, config.baud);
+                cfsetospeed(&options, config.baud);
+                if (tcsetattr(serial_fd, TCSANOW, &options) == -1) {
+                    fprintf(stderr, "Failed to set serial options: %m\n");
+                    /* exit(1); */
+                }
+
+                tcflush(serial_fd, TCIFLUSH);
+                tcflush(serial_fd, TCOFLUSH);
+
+                // try syncing before we do a mavlink reset (which can confuse bl)
+                if (bootloader_get_sync() == -1) {
+                    fprintf(stderr, "Failed to get sync\n");
+                } else {
+                    fprintf(stderr, "Got sync at %s\n", config.name);
+                    return 0;
+                }
+
+                bootloader_send_mavlink_reboot();
+                sleep(1);
+                close(serial_fd);
+            } else {
+                fprintf(stderr, "%s does not exist\n", fc_port_path);
+            }
 
             for (uint8_t j=0; j<ARRAY_LEN(serial_configs); j++) {
                 serial_config_t config = serial_configs[j];
@@ -255,7 +274,7 @@ int configure_serial()
 
                 char c;
                 while (read(serial_fd, &c, 1) == 1) {
-                    fprintf(stderr, "Received char 0x%02x\n", c);
+                    fprintf(stderr, "Received char 0x%02x\n", (uint8_t)c);
                 }
 
                 if (bootloader_get_sync() == -1) {
@@ -278,14 +297,14 @@ void bootloader_progress(uint8_t percent)
 void usage()
 {
     fprintf(stderr, "Usage: test-bootloader -s serial_port -f fc_port -a firmware -w\n");
-    fprintf(stderr, "e.g. ./test-bootloader -s /dev/ttyS0\n");
-    fprintf(stderr, "e.g. ./test-bootloader -f /dev/serial/by-id/usb-3D_Robotics_PX4_FMU_v2.x_0-if00 -s /dev/serial/by-id/usb-3D_Robotics_PX4_BL_FMU_v2.x_0-if00\n");
     fprintf(stderr,
             "Where:\n"
-            " -s serial port bootloader will appear on"
-            " -f serial port flight controller will appear on (so we can attempt to reboot it)"
-            " -a filepath of a suitable firmware"
-            " -w write firmware");
+            " -s serial port bootloader will appear on\n"
+            " -f serial port flight controller will appear on (so we can attempt to reboot it)\n"
+            " -a filepath of a suitable firmware\n"
+            " -w write firmware\n");
+    fprintf(stderr, "e.g. ./test-bootloader -s /dev/ttyS0 # dump info about bootloader\n");
+    fprintf(stderr, "e.g. ./test-bootloader -f /dev/serial/by-id/usb-3D_Robotics_PX4_FMU_v2.x_0-if00 -s /dev/serial/by-id/usb-3D_Robotics_PX4_BL_FMU_v2.x_0-if00 -w arducopter.bin# reboot and flash a PixHawk\n");
 
 // TARGET=bin/arducopter
 // ELF=build/px4-v2/$TARGET
