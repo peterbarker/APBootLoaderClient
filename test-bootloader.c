@@ -314,6 +314,35 @@ void usage()
     exit(1);
 }
 
+void set_921600(int serial_fd)
+{
+    // set bootloader baudrate
+    struct termios options;
+    if (tcgetattr(serial_fd, &options) == -1) {
+        fprintf(stderr, "Failed to get serial options: %m\n");
+        exit(1);
+    }
+    const uint32_t baud = 921600;
+    if (bootloader_set_baudrate(baud) == -1) {
+    	fprintf(stderr, "Failed to set bootloader baudrate\n");
+    	abort();
+    }
+
+    // set local serial port baudrate
+    cfsetspeed(&options, B921600);
+    if (tcsetattr(serial_fd, TCSANOW, &options) == -1) {
+        fprintf(stderr, "Failed to set local baudrate: %m\n");
+    	abort();
+    }
+
+    // make sure that worked
+    if (bootloader_get_sync() == -1) {
+	fprintf(stderr, "Failed to get sync after changing baudrate\n");
+    	abort();
+    }
+    fprintf(stderr, "Got sync\n");
+}
+
 int main(int argc, char **argv)
 {
     extern char *optarg;
@@ -507,6 +536,8 @@ int main(int argc, char **argv)
     } else {
         fprintf(stderr, "Got crc (%x)\n", crc);
     }
+
+    set_921600(serial_fd);
 
     if (do_write) {
         /* erase the chip */
